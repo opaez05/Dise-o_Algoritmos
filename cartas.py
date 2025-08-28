@@ -23,6 +23,6 @@ for palo in palos:
 random.shuffle(mazo)
 
 #mostramos las cartas 
-print("Primeras 5 cartas")
-for c in mazo[:5]:
+print("52 cartas")
+for c in mazo[:52]:
     print(c)
