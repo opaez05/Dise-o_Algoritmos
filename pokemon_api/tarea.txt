@@ -1,0 +1,42 @@
+Tarea a Realizar: Poké-Grafo y Optimización
+El objetivo es consumir la PokéAPI para obtener una cadena de evolución, modelar esa información como un grafo en Python y, finalmente, usar el algoritmo de Búsqueda Binaria para verificar la existencia de un Pokémon dentro de esa cadena.
+
+Requisitos Técnicos
+
+Lenguaje: Python 3.x
+
+Librerías: requests (para consumir la API)
+
+Pasos del Ejercicio
+
+Fase 1: Consumo de la API y Construcción del Grafo (Estructura)
+
+Instalar requests (si es necesario): pip install requests.
+
+Elegir la cadena de evolución: Utilizar el endpoint de la cadena de evolución de Bulbasaur (ID 1): https://pokeapi.co/api/v2/evolution-chain/1/.
+
+Realizar la petición: Usa requests.get() para obtener los datos en formato JSON.
+
+Construir la Lista de Adyacencia: Implementa una función recursiva (construir_grafo) que recorra la estructura JSON jerárquica (chain y evolves_to) y mapee los datos a un diccionario de Python que represente el grafo (Lista de Adyacencia).
+
+Clave del diccionario (Nodo): El nombre del Pokémon (e.g., 'bulbasaur').
+
+Valor del diccionario (Aristas): Una lista de los Pokémon a los que evoluciona (e.g., ['ivysaur']).
+
+Fase 2: Implementación de la Búsqueda Binaria (Algoritmo)
+
+Extraer Nodos Ordenados: Crea una lista a partir de las claves (nombres de Pokémon) del grafo que construiste en la Fase 1 y utiliza la función sorted() para asegurarte de que esté ordenada alfabéticamente.
+
+Implementar Búsqueda Binaria: Escribe la función clásica busqueda_binaria(lista_ordenada, objetivo):
+
+Debe inicializar los punteros izquierda y derecha.
+
+Debe iterar mientras izquierda <= derecha.
+
+Debe calcular el medio y comparar el valor en lista_ordenada[medio] con el objetivo.
+
+Prueba de Concepto:
+
+Busca un Pokémon que esté en tu grafo (e.g., 'ivysaur').
+
+Busca un Pokémon que no esté en tu grafo (e.g., 'charmander').
