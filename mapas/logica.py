@@ -7,93 +7,103 @@ from datetime import timedelta
 from config import API_KEY 
 
 API_BASE_URL = 'https://maps.googleapis.com/maps/api/distancematrix/json'
+DIRECTIONS_API_URL = 'https://maps.googleapis.com/maps/api/directions/json'
+STATIC_MAPS_API_URL = 'https://maps.googleapis.com/maps/api/staticmap'
 
 class DistanceCalculator:
     def __init__(self, api_key=None):
-        """Constructor que inicializa la clave API."""
+        """Constructor que inicializa la clave API y valida."""
         self.api_key = api_key if api_key else API_KEY 
         if not self.api_key or self.api_key == "TU_CLAVE_API_AQUI":
-             # Lanza una excepción si la clave no está configurada
             raise ValueError("La clave API no está configurada en config.py.")
 
-    def obtener_distancias_multiples(self, origenes, destinos, modo='driving'):
-        """Obtiene las distancias y duraciones para múltiples orígenes y destinos."""
+    def obtener_ruta_detallada(self, origen, destino, waypoints, modo='driving'):
+        """
+        Llama a Directions API para obtener la ruta óptima, duración, y polilínea.
+        """
         
-        origenes_str = '|'.join(origenes)
-        destinos_str = '|'.join(destinos)
+        # Las paradas intermedias se pasan separadas por el símbolo '|'
+        waypoints_str = '|'.join(waypoints)
         
         params = {
-            'origins': origenes_str,
-            'destinations': destinos_str,
+            'origin': origen,
+            'destination': destino,
+            # Añade 'optimize:true' para obtener la secuencia más rápida entre los waypoints
+            'waypoints': f"optimize:true|{waypoints_str}" if waypoints else waypoints_str,
             'mode': modo,
-            'units': 'metric',
             'key': self.api_key
         }
         
         try:
-            # Petición robusta con timeout
-            response = requests.get(API_BASE_URL, params=params, timeout=10)
-            response.raise_for_status() # Lanza HTTPError para 4xx/5xx
+            response = requests.get(DIRECTIONS_API_URL, params=params, timeout=10)
+            response.raise_for_status() 
             data = response.json()
             
         except requests.exceptions.RequestException as e:
-            # 🚨 Captura el error de conexión/DNS/Timeout 🚨
-            error_msg = f"Error de Conexión: Verifica tu Internet, Firewall o DNS. Detalle: {e}"
+            error_msg = f"Error de Conexión: Verifica tu Internet, Firewall o DNS (NameResolutionError). Detalle: {e}"
             raise ConnectionError(error_msg)
 
-        # Comprobación del estado de la API (Cuota, Clave Inválida, etc.)
-        api_status = data.get('status')
-        if api_status != 'OK':
-            error_message = data.get('error_message', f"Estado de la API: {api_status}")
-            if 'OVER_QUERY_LIMIT' in api_status:
-                error_message += ". Has excedido tu cuota API."
-            elif 'INVALID_REQUEST' in api_status:
-                 error_message += ". Revisa tu clave API."
-            
-            raise RuntimeError(f"Error en la API de Google Maps: {error_message}")
+        if data.get('status') != 'OK' or not data.get('routes'):
+            error_message = data.get('error_message', f"Estado de Directions API: {data.get('status')}")
+            raise RuntimeError(f"Error al obtener la ruta: {error_message}. Revisa la clave o los puntos de ruta.")
         
-        return data
+        # La ruta más rápida/sugerida es la primera (index 0) debido a 'optimize:true'
+        ruta = data['routes'][0]
+        
+        # Obtener el resumen de distancia y duración de la ruta completa
+        distancia_total = sum(leg['distance']['value'] for leg in ruta['legs'])
+        duracion_total = sum(leg['duration']['value'] for leg in ruta['legs'])
+        
+        # Retorna la polilínea y los datos de la ruta
+        return {
+            'polyline': ruta['overview_polyline']['points'],
+            'distance_km': round(distancia_total / 1000, 2),
+            'duration_sec': duracion_total,
+            'summary_text': f"Ruta óptima sugerida: {ruta['summary']}"
+        }
 
-    def calcular_ruta_multiples(self, ciudades, modo='driving'):
-        """Calcula la ruta secuencial: Ciudad1 -> Ciudad2, Ciudad2 -> Ciudad3, ..."""
+    def generar_mapa_url(self, polyline, size='550x350'):
+        """Genera la URL de Maps Static API para obtener la imagen del mapa."""
         
-        if len(ciudades) < 2:
-            return "Necesitas al menos dos ciudades para definir una ruta."
+        # Estilo de la ruta: rojo, ancho 5 píxeles, polilínea codificada
+        path_style = f"color:0xff0000ff|weight:5|enc:{polyline}"
         
-        resultados_segmentos = []
-        total_segundos = 0
+        params = {
+            'size': size,
+            'path': path_style,
+            'key': self.api_key,
+            'maptype': 'roadmap',
+            'format': 'png'
+            # El mapa Static API centrará la vista automáticamente basándose en la polilínea
+        }
         
-        # El try/except grande se elimina aquí y se mueve a interfaz.py
-        for i in range(len(ciudades) - 1):
-            origen = [ciudades[i]]
-            destino = [ciudades[i + 1]]
-            
-            # La función obtener_distancias_multiples lanzará la excepción si hay un problema.
-            data = self.obtener_distancias_multiples(origen, destino, modo)
-            element = data['rows'][0]['elements'][0]
-            
-            if element['status'] == 'OK':
-                distancia = element['distance']['text']
-                duracion_text = element['duration']['text']
-                duracion_seg = element['duration']['value'] 
-                
-                segmento_resultado = f"Segmento {i+1} ({origen[0]} → {destino[0]}): Distancia: {distancia}, Duración: {duracion_text}"
-                resultados_segmentos.append(segmento_resultado)
-                total_segundos += duracion_seg
-            else:
-                # Si un segmento falla, lo reportamos y lanzamos un error para detener el cálculo.
-                status_seg = element['status']
-                error_msg = f"No se pudo calcular la ruta entre {origen[0]} y {destino[0]}. Estado: {status_seg}"
-                raise ValueError(error_msg)
-        
-        total_tiempo_fmt = self._formatear_tiempo(total_segundos)
-        
-        informe = "\n".join(resultados_segmentos)
-        informe += f"\n\n\n✅ **Ruta Total Calculada:**\n"
-        informe += f"Ruta: {ciudades[0]} → ... → {ciudades[-1]}\n"
-        informe += f"Duración Total Estimada: {total_tiempo_fmt}"
+        # Construye la URL final de la imagen
+        url = requests.Request('GET', STATIC_MAPS_API_URL, params=params).prepare().url
+        return url
 
-        return informe
+    def calcular_y_mapear_ruta(self, ciudades, modo='driving'):
+        """Función principal que combina cálculo y mapa."""
+        
+        origen = ciudades[0]
+        destino = ciudades[-1]
+        waypoints = ciudades[1:-1] # Paradas intermedias
+        
+        # 1. Obtener datos de la ruta (incluye la sugerencia más rápida)
+        ruta_data = self.obtener_ruta_detallada(origen, destino, waypoints, modo)
+        
+        # 2. Generar la URL del mapa con esa polilínea
+        mapa_url = self.generar_mapa_url(ruta_data['polyline'])
+        
+        # 3. Formatear el resultado final
+        tiempo_fmt = self._formatear_tiempo(ruta_data['duration_sec'])
+        
+        informe = f"✅ **Ruta Sugerida (Más Rápida):**\n"
+        informe += f"Ruta: {origen} → ... → {destino}\n"
+        informe += f"{ruta_data['summary_text']}\n"
+        informe += f"Distancia Total: **{ruta_data['distance_km']} km**\n"
+        informe += f"Duración Total Estimada: **{tiempo_fmt}**"
+        
+        return informe, mapa_url
 
     def _formatear_tiempo(self, segundos):
         """Convierte segundos a formato legible (días, horas, minutos) usando timedelta."""
